@@ -119,30 +119,35 @@ def Convert_to_ILP( SFClist: list[list[nx.DiGraph]], G: nx.DiGraph) -> LpProblem
                         >= -1 * M * (1 - phi[(s_index, k)])                        
                     )
             
-            #C6:
-            __problem +=(
-                lpSum(
-                    phi[(s_index, k)]
-                )
-                == 1
+    #C6:
+    for s_index in range(len(SFClist)):
+        # print(s_index)
+        __problem +=(
+            lpSum(
+                phi[(s_index, k)] for k in range(len(SFClist[s_index]))
             )
-
-            #C7:
+            == 1
+        )
+    #C7:
+    for s_index in range(len(SFClist)): 
+        for k in range(len(SFClist[s_index])):
             __problem += (
                 z[(s_index, k)] <= pi[s_index]
             )
-
             __problem += (
                 z[(s_index, k)] <= phi[(s_index, k)]
             )
-
             __problem += (
                 z[(s_index, k)] >= pi[s_index] + phi[(s_index, k)] - 1
             )
 
-            __problem += (
-                0 - lpSum(
-                pi[s_index]
-                )
-            )
-    return __problem
+
+    __problem += 0.99999 * lpSum(pi[s_index] ) - (1 - 0.99999) * lpSum(xEdge[(s_index, k, (i, j), (v, w))]
+                                                                    for s_index, s in enumerate(SFClist) 
+                                                                    for k, subgraph in enumerate(s)
+                                                                    for v, w in subgraph.edges
+                                                                    for i, j in G.edges )
+   
+
+    
+    return __problem 
