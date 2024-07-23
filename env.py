@@ -61,18 +61,16 @@ class RLen3(gym.Env):
         self.physical_graph = physical_graph
         self.sfcs_list = sfcs_list
         self.num_sfcs = len(sfcs_list)
-        # self.num_nodes = len(physical_graph.nodes)
-        # self.num_links = len(physical_graph.edges)
-        self.mapped_configs = 0
+        self.mapped_configs = set()
         
         self.observation_space = gym.spaces.Discrete(n=self.num_sfcs)
         self.action_space = gym.spaces.Discrete(n=sum(len(s) for s in sfcs_list))
     
     def reset(self):
         self.physical_graph_current = copy.deepcopy(self.physical_graph)
-        self.mapped_configs = 0
-        observation = copy.deepcopy(self.physical_graph)
+        self.mapped_configs = set()
         self.sfc_order_current = 0
+        
         return (self.sfc_order_current, {"message": "environment reset"})
         
     def __get_node_cap(self, node_id): 
@@ -129,14 +127,15 @@ class RLen3(gym.Env):
                     
     def _get_action_detail(self, action):
         count = 0
-        for s_index, s in enumerate(self.sfcs_list):
+        print("s_o_c: ", self.sfc_order_current)
+        for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
+            s = self.sfcs_list[s_index]
             for k, config in enumerate(s):
                 if count == action:
                     return (s_index, k, config)
                 count += 1
     
     def _all_mapped(self):
-        
         if self.sfc_order_current == len(self.sfcs_list):
             return True
         return False
@@ -146,6 +145,10 @@ class RLen3(gym.Env):
     
     def step(self, action):
         sfc_index, config_index, sfc = self._get_action_detail(action)
+        if (sfc_index, config_index) in self.mapped_configs:
+            reward = -10
+            return self.sfc_order_current, reward, False, {"message": f"config {config_index} of SFC {sfc_index} already mapped"}
+        
         K = []
         K.append([sfc])
         problem, xEdge = ConvertToILP(self.physical_graph_current, K)
@@ -154,10 +157,17 @@ class RLen3(gym.Env):
         
         reward, mapping_result = extract_mapping_result(problem, K, self.physical_graph, xEdge)
         reward = -reward
+        info = {}
         self.update_physical_network(mapping_result, K)
+        self._confirm_mapping()
+        self.mapped_configs.add((sfc_index, config_index))
+        info = {
+            "mesage": f"config {config_index} of SFC {sfc_index} mapped successful into PHY "
+        }
         
         is_done = self._all_mapped()
-        info = {}
+        
+        
         if is_done:
             info = {
                 "message": "All SFCs mapped"
@@ -166,38 +176,35 @@ class RLen3(gym.Env):
         else:
             done = False
         
-        self._confirm_mapping()
-        
-        
-        
         return self.sfc_order_current, reward, done, info
 
-# # Tạo môi trường
-# env = RLen3(PHY, sfcs_list)
+# Tạo môi trường
+env = RLen3(PHY, sfcs_list)
 
-# # Đặt lại môi trường
-# observation = env.reset()
-# print("Initial observation:", observation)
+# Đặt lại môi trường
+observation = env.reset()
+print("Initial observation:", observation)
 
-# # Thực hiện các bước hành động để kiểm tra
+# Thực hiện các bước hành động để kiểm tra
+n = 0
+while n < 10:
+    n+=1
+    actions = [0, 1]
+    action = np.random.choice(actions)  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
 
-# while True:
-#     actions = [0, 1]
-#     action = np.random.choice(actions)  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
-#     print(action)
-#     observation, reward, done, info = env.step(action)
-#     print(f"Action {action}:")
-#     print("Observation:", observation)
-#     print("Reward:", reward)
-#     print("Done:", done)
-#     print("Info:", info)
+    observation, reward, done, info = env.step(action)
+    print(f"Action {action}:")
+    print("Observation:", observation)
+    print("Reward:", reward)
+    print("Done:", done)
+    print("Info:", info)
 
     
-#     if done:  # Thêm điều kiện để thoát khỏi vòng lặp khi done là True
-#         break
+    if done:  # Thêm điều kiện để thoát khỏi vòng lặp khi done là True
+        break
 
-# # # Kiểm tra trạng thái cuối cùng của đồ thị vật lý
-# # print("Final physical graph state (nodes):", env.physical_graph_current.nodes(data=True))
-# # print("Final physical graph state (edges):", env.physical_graph_current.edges(data=True))
+# # Kiểm tra trạng thái cuối cùng của đồ thị vật lý
+# print("Final physical graph state (nodes):", env.physical_graph_current.nodes(data=True))
+# print("Final physical graph state (edges):", env.physical_graph_current.edges(data=True))
 
 # #Viet Q_learn o day
