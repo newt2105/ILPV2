@@ -85,7 +85,7 @@ class QLearningAgent:
             self.epsilon = max(new_epsilon, self.epsilon_min)
 
     def plot_duration(self, show_result=False):
-        plt.figure(1)
+        # plt.figure(1)
         duration_t = torch.tensor(self.episode_duration, dtype=torch.float)
         if show_result:
             plt.title("QL-Result")
@@ -109,17 +109,21 @@ class QLearningAgent:
 
 def TrainAgent(agent: QLearningAgent, env: RLen3, nepisode: int, verbose: bool = False, liveview: bool = False) -> tuple[QLearningAgent, list[float]]:
     reward_list = []
+
     for ep in range(nepisode):
         obs, info = env.reset()
         terminated = False
         rw_list = []
         while not terminated:
             action = agent.choose_action(obs)
+            # print("action: ",action)
             next_obs, reward, done, info = env.step(action)
+            # print(next_obs, reward, done, info)
+            print(info)
             rw_list.append(reward)
             agent.update_q_table(obs, action, reward, next_obs)
             obs = next_obs
-            print(obs)
+            # print(obs)
             terminated = done
         if verbose:
             print(f"ep_{ep}: {info['message']} {obs} {info}")
@@ -141,3 +145,8 @@ trained_agent, rewards = TrainAgent(agent, env, nepisode=1000, verbose=True, liv
 
 # Vẽ kết quả cuối cùng
 agent.plot_duration(show_result=True)
+
+# Lưu ảnh cuối cùng
+plt.savefig('final_result.png')
+
+

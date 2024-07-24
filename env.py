@@ -45,9 +45,14 @@ sfc1_config2.add_edge(3, 2, cap={'bandwidth': 15})
 sfc1_config2.add_edge(0, 3, cap={'bandwidth': 10})
 
 # Tạo danh sách các SFCs cho 3 slice, mỗi slice có 2 cấu hình
-sfcs_list = [[sfc1_config1, sfc1_config2] for _ in range(5)]
-# print(len(sfcs_list))
-# exit()
+sfcs_list = [[sfc1_config1, sfc1_config2]  for _ in range(5)]
+# for s_index, s in enumerate(sfcs_list):
+#     print(s_index)
+#     print(len(s))
+#     n = len(s)
+#     break
+# print(n)
+
 
 # Định nghĩa môi trường RLen3
 class RLen3(gym.Env):
@@ -63,8 +68,8 @@ class RLen3(gym.Env):
         self.num_sfcs = len(sfcs_list)
         self.mapped_configs = set()
         
-        self.observation_space = gym.spaces.Discrete(n=self.num_sfcs)
-        self.action_space = gym.spaces.Discrete(n=sum(len(s) for s in sfcs_list))
+        self.observation_space = gym.spaces.Discrete(n=self.num_sfcs + 1)
+        self.action_space = gym.spaces.Discrete(3)
     
     def reset(self):
         self.physical_graph_current = copy.deepcopy(self.physical_graph)
@@ -125,32 +130,81 @@ class RLen3(gym.Env):
                     }
                     nx.set_edge_attributes(self.physical_graph_current, {phylink: updated_cap}, "cap")
                     
+    # def _get_action_detail(self, action):
+    #     count = 0
+    #     for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
+    #         print("s_index: ",s_index)
+    #         s = self.sfcs_list[s_index]
+    #         print("s: ",s)
+    #         for k, config in enumerate(s):
+    #             print("k: ",k)
+    #             if count == action:
+    #                 return (s_index, k, config)
+    #             count += 1
     def _get_action_detail(self, action):
-        count = 0
-        print("s_o_c: ", self.sfc_order_current)
+        if action not in [0, 1]:
+            return None  # Trả về None nếu hành động không hợp lệ
+        print("current: ", self.sfc_order_current)
         for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
             s = self.sfcs_list[s_index]
-            for k, config in enumerate(s):
-                if count == action:
-                    return (s_index, k, config)
-                count += 1
-    
+            if action < len(s):
+                return (s_index, action, s[action])
+        
+        return None
     def _all_mapped(self):
-        if self.sfc_order_current == len(self.sfcs_list):
+        if self.sfc_order_current == len(self.sfcs_list) - 1 :
             return True
         return False
     
     def _confirm_mapping(self):
+        if self.sfc_order_current < len(self.sfcs_list)-1:
+            self.sfc_order_current += 1
+
+    def __skip_sfc(self):
         self.sfc_order_current += 1
     
+    def __is_last_slice(self):
+        if self.sfc_order_current == len(self.sfcs_list) - 1 :
+            return True
+        return False
+
+    def __is_reached_termination(self):
+        if (self.sfc_order_current >= len(self.sfcs_list)-1):
+            return True
+        return False
+
+    
     def step(self, action):
+        action = action -1
+        # print("alo: ", self.action_space)
+        print("curent in step: ",self.sfc_order_current)
+        if (self.__is_reached_termination()):
+            reward = 0
+            info = {
+                "message": "the env is terminated"
+            }
+            
+            return (self.sfc_order_current, reward, self.__is_reached_termination(), info)
+
+        if (action == -1):
+            self.__skip_sfc()
+            reward = -0.3
+            info = {
+                "message": "skip the sfc"
+            }
+            return self.sfc_order_current, reward, False, info          
+        
         sfc_index, config_index, sfc = self._get_action_detail(action)
         if (sfc_index, config_index) in self.mapped_configs:
             reward = -10
-            return self.sfc_order_current, reward, False, {"message": f"config {config_index} of SFC {sfc_index} already mapped"}
-        
+            info = {
+                {"message": f"config {config_index} of SFC {sfc_index} already mapped"}
+            }
+            return self.sfc_order_current, reward, self.__is_reached_termination(), info
+
         K = []
         K.append([sfc])
+        
         problem, xEdge = ConvertToILP(self.physical_graph_current, K)
         solver = COIN_CMD(msg=0)  # Tạo đối tượng solver với thông số msg=0 để tắt log
         problem.solve(solver)
@@ -164,19 +218,18 @@ class RLen3(gym.Env):
         info = {
             "mesage": f"config {config_index} of SFC {sfc_index} mapped successful into PHY "
         }
-        
+        done = False
         is_done = self._all_mapped()
-        
-        
         if is_done:
             info = {
                 "message": "All SFCs mapped"
             }
             done = True
+            return self.sfc_order_current, reward, self.__is_reached_termination(), info
         else:
             done = False
         
-        return self.sfc_order_current, reward, done, info
+        return self.sfc_order_current, reward, self.__is_reached_termination(), info
 
 # Tạo môi trường
 env = RLen3(PHY, sfcs_list)
@@ -185,23 +238,70 @@ env = RLen3(PHY, sfcs_list)
 observation = env.reset()
 print("Initial observation:", observation)
 
-# Thực hiện các bước hành động để kiểm tra
-n = 0
-while n < 10:
-    n+=1
-    actions = [0, 1]
-    action = np.random.choice(actions)  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+action = 2  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+observation, reward, done, info = env.step(action)
+print(f"Action {action}:")
+print("Observation:", observation)
+print("Reward:", reward)
+print("Done:", done)
+print("Info:", info)
+print("\n")
+action = 2  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+observation, reward, done, info = env.step(action)
+print(f"Action {action}:")
+print("Observation:", observation)
+print("Reward:", reward)
+print("Done:", done)
+print("Info:", info)
+print("\n")
+action = 2  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+observation, reward, done, info = env.step(action)
+print(f"Action {action}:")
+print("Observation:", observation)
+print("Reward:", reward)
+print("Done:", done)
+print("Info:", info)
+print("\n")
+action = 2  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+observation, reward, done, info = env.step(action)
+print(f"Action {action}:")
+print("Observation:", observation)
+print("Reward:", reward)
+print("Done:", done)
+print("Info:", info)
+print("\n")
+action = 2  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+observation, reward, done, info = env.step(action)
+print(f"Action {action}:")
+print("Observation:", observation)
+print("Reward:", reward)
+print("Done:", done)
+print("Info:", info)
 
-    observation, reward, done, info = env.step(action)
-    print(f"Action {action}:")
-    print("Observation:", observation)
-    print("Reward:", reward)
-    print("Done:", done)
-    print("Info:", info)
+action = 2  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+observation, reward, done, info = env.step(action)
+print(f"Action {action}:")
+print("Observation:", observation)
+print("Reward:", reward)
+print("Done:", done)
+print("Info:", info)
+# # Thực hiện các bước hành động để kiểm tra
+# n = 0
+# while True:
+#     n+=1
+#     actions = [0, 1,2]
+#     action = np.random.choice(actions)  # Sử dụng numpy để chọn ngẫu nhiên một giá trị từ actions
+
+#     observation, reward, done, info = env.step(action)
+#     print(f"Action {action}:")
+#     print("Observation:", observation)
+#     print("Reward:", reward)
+#     print("Done:", done)
+#     print("Info:", info)
 
     
-    if done:  # Thêm điều kiện để thoát khỏi vòng lặp khi done là True
-        break
+#     if done:  # Thêm điều kiện để thoát khỏi vòng lặp khi done là True
+#         break
 
 # # Kiểm tra trạng thái cuối cùng của đồ thị vật lý
 # print("Final physical graph state (nodes):", env.physical_graph_current.nodes(data=True))
