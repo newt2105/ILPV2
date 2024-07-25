@@ -3,9 +3,6 @@ import os
 import time
 import pickle
 
-sys.path.append(os.path.dirname(__file__))
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-
 
 class QLearningSolver:
     def __init__(self, agent, env):

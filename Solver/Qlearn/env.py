@@ -21,13 +21,15 @@ class RLen3(gym.Env):
         self.sfcs_list = sfcs_list
         self.num_sfcs = len(sfcs_list)
         self.mapped_configs = set()
-        self.observation_space = gym.spaces.Discrete(n=self.num_sfcs + 1) # slice in process
-        self.action_space = gym.spaces.Discrete(3)                        # -1, 0, 1 : each config
+        self.sol = dict()
+        self.observation_space = gym.spaces.Discrete(n=self.num_sfcs + 1)
+        self.action_space = gym.spaces.Discrete(3)
     
     def reset(self):
         self.physical_graph_current = copy.deepcopy(self.physical_graph)
-        self.mapped_configs = set() # set of config mapped 
-        self.sfc_order_current = 0  # obs
+        self.mapped_configs = set()
+        self.sfc_order_current = 0
+        self.sol = {}
         return (self.sfc_order_current, {"message": "environment reset"})
         
     def __get_node_cap(self, node_id): 
@@ -54,7 +56,7 @@ class RLen3(gym.Env):
             return vlink_reqs.get(vlink_id, {})
         return vlink_reqs
 
-    def update_physical_network(self, mapping_result, K): # update PHY after mapping 
+    def update_physical_network(self, mapping_result, K):
         node_mapping = mapping_result.get('node_mapping', {})
         link_mapping = mapping_result.get('link_mapping', {})
         
@@ -81,27 +83,27 @@ class RLen3(gym.Env):
                         'bandwidth': link_cap['bandwidth'] - vlink_req['bandwidth']
                     }
                     nx.set_edge_attributes(self.physical_graph_current, {phylink: updated_cap}, "cap")
-
-    def _get_action_detail(self, action): # take the config coresponse to action (0 or 1)
+                    
+    def _get_action_detail(self, action):
         if action not in [0, 1]:
             return None  # Trả về None nếu hành động không hợp lệ
-        print("current: ", self.sfc_order_current)
+        # print("current: ", self.sfc_order_current)
         for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
             s = self.sfcs_list[s_index]
             if action < len(s):
                 return (s_index, action, s[action])
+        
         return None
-    
-    def _all_mapped(self): # Check if all the config mapped or not
+    def _all_mapped(self):
         if self.sfc_order_current == len(self.sfcs_list) - 1 :
             return True
         return False
     
-    def _confirm_mapping(self): 
+    def _confirm_mapping(self):
         if self.sfc_order_current < len(self.sfcs_list)-1:
             self.sfc_order_current += 1
 
-    def __skip_sfc(self): # skip the slice
+    def __skip_sfc(self):
         self.sfc_order_current += 1
     
     def __is_last_slice(self):
@@ -115,8 +117,40 @@ class RLen3(gym.Env):
         return False
 
     
+
+    def __update_key(self,key, sfc_index, config_index):
+        if key.startswith('phi_'):
+            parts = key.split('_')
+            parts[1] = str(int(parts[1]) - int(parts[1]) + sfc_index)
+            parts[2] = str(int(parts[2]) - int(parts[2]) + config_index)
+            new_key = '_'.join(parts)
+        elif key.startswith('pi_'):
+            parts = key.split('_')
+            parts[1] = str(int(parts[1]) - int(parts[1]) + sfc_index)
+            new_key = '_'.join(parts)
+        elif key.startswith('xEdge_'):
+            parts = key.split('_', 3)
+            parts[1] = str(int(parts[1]) - int(parts[1]) + sfc_index)
+            parts[2] = str(int(parts[2]) - int(parts[2]) + config_index)
+            new_key = '_'.join(parts)
+        elif key.startswith('xNode_'):
+            parts = key.split('_')
+            parts[1] = str(int(parts[1]) - int(parts[1]) + sfc_index)
+            parts[2] = str(int(parts[2]) - int(parts[2]) + config_index)
+            new_key = '_'.join(parts)
+        elif key.startswith('z_'):
+            parts = key.split('_')
+            parts[1] = str(int(parts[1]) - int(parts[1]) + sfc_index)
+            parts[2] = str(int(parts[2]) - int(parts[2]) + config_index)
+            new_key = '_'.join(parts)
+        else:
+            new_key = key
+        return new_key
+    
     def step(self, action):
         action = action -1
+        # print("alo: ", self.action_space)
+        # print("curent in step: ",self.sfc_order_current)
         if (self.__is_reached_termination()):
             reward = 0
             info = {
@@ -144,11 +178,23 @@ class RLen3(gym.Env):
         K = []
         K.append([sfc])
         
-        problem, xEdge = ConvertToILP(self.physical_graph_current, K)
-        solver = COIN_CMD(msg=0)  
+        problem, xEdge, phi, pi, z= ConvertToILP(self.physical_graph_current, K)
+        solver = COIN_CMD(msg=0)  # Tạo đối tượng solver với thông số msg=0 để tắt log
         problem.solve(solver)
+        new_solution = dict()
+        for v in problem.variables():
+            if v.varValue == 1.0:
+                self.sol[v.name] = v.varValue
         
+        for key, value in self.sol.items():
+            if value == 1.0:
+                new_key = self.__update_key(key, sfc_index, config_index)
+                new_solution[new_key] = value
+        self.sol = new_solution
+        # print(self.sol)
+        # print(solution)
         reward, mapping_result = extract_mapping_result(problem, K, self.physical_graph, xEdge)
+        # print("mapping_re: ",mapping_result)
         reward = -reward
         info = {}
         self.update_physical_network(mapping_result, K)
@@ -169,3 +215,6 @@ class RLen3(gym.Env):
             done = False
         
         return self.sfc_order_current, reward, self.__is_reached_termination(), info
+    
+    def render(self)->dict:
+        return self.sol
