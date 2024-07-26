@@ -31,10 +31,5 @@ class QLearningSolver:
 
         end_time = time.time()
         solving_time = end_time - start_time
-        accept_rate = mapped_slices / total_slices
-
-        print(f"Solving Time: {solving_time} seconds")
-        print(f"Accept Rate: {accept_rate * 100:.2f}%")
-        print(f"Solution Info: {info}")
 
         return info
