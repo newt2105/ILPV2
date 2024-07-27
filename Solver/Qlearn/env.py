@@ -87,7 +87,6 @@ class RLen3(gym.Env):
     def _get_action_detail(self, action):
         if action not in [0, 1]:
             return None  # Trả về None nếu hành động không hợp lệ
-        # print("current: ", self.sfc_order_current)
         for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
             s = self.sfcs_list[s_index]
             if action < len(s):
@@ -95,24 +94,24 @@ class RLen3(gym.Env):
         
         return None
     def _all_mapped(self):
-        if self.sfc_order_current == len(self.sfcs_list) - 1 :
+        if self.sfc_order_current == len(self.sfcs_list):
             return True
         return False
     
     def _confirm_mapping(self):
-        if self.sfc_order_current < len(self.sfcs_list)-1:
+        if self.sfc_order_current < len(self.sfcs_list):
             self.sfc_order_current += 1
 
     def __skip_sfc(self):
         self.sfc_order_current += 1
     
     def __is_last_slice(self):
-        if self.sfc_order_current == len(self.sfcs_list) - 1 :
+        if self.sfc_order_current == len(self.sfcs_list):
             return True
         return False
 
     def __is_reached_termination(self):
-        if (self.sfc_order_current >= len(self.sfcs_list)-1):
+        if (self.sfc_order_current >= len(self.sfcs_list)):
             return True
         return False
 
@@ -162,10 +161,20 @@ class RLen3(gym.Env):
         if (action == -1):
             self.__skip_sfc()
             reward = -0.3
-            info = {
-                "message": "skip the sfc"
-            }
-            return self.sfc_order_current, reward, False, info          
+            is_done = self._all_mapped()
+            if is_done:
+                info = {
+                    "message": f"skip the config - ALL MAPPED"
+                }
+                done = True
+                return self.sfc_order_current, reward, self.__is_reached_termination(), info
+            else:
+                done = False
+                
+                info = {
+                    "message": "skip the sfc"
+                }
+                return self.sfc_order_current, reward, False, info          
         
         sfc_index, config_index, sfc = self._get_action_detail(action)
         if (sfc_index, config_index) in self.mapped_configs:
@@ -190,11 +199,8 @@ class RLen3(gym.Env):
             if value == 1.0:
                 new_key = self.__update_key(key, sfc_index, config_index)
                 new_solution[new_key] = value
-        self.sol = new_solution
-        # print(self.sol)
-        # print(solution)
+        self.sol.update(new_solution)
         reward, mapping_result = extract_mapping_result(problem, K, self.physical_graph, xEdge)
-        # print("mapping_re: ",mapping_result)
         reward = -reward
         info = {}
         self.update_physical_network(mapping_result, K)
