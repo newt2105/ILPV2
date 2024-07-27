@@ -8,6 +8,7 @@ class QLearningSolver:
     def __init__(self, agent, env):
         self.agent = agent
         self.env = env
+        
 
     def load_q_table(self, filepath):
         with open(filepath, 'rb') as f:
@@ -30,6 +31,6 @@ class QLearningSolver:
             obs = next_obs
 
         end_time = time.time()
-        solving_time = end_time - start_time
-
+        self.problem.solution_time = end_time - start_time
+        self.problem.solution = self.env.render()
         return info
