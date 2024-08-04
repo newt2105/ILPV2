@@ -24,12 +24,14 @@ class RLen3(gym.Env):
         self.sol = dict()
         self.observation_space = gym.spaces.Discrete(n=self.num_sfcs + 1)
         self.action_space = gym.spaces.Discrete(3)
+        self.__is_truncated = False
     
     def reset(self):
         self.physical_graph_current = copy.deepcopy(self.physical_graph)
         self.mapped_configs = set()
         self.sfc_order_current = 0
         self.sol = {}
+        self.__is_truncated = False
         return (self.sfc_order_current, {"message": "environment reset"})
         
     def __get_node_cap(self, node_id): 
@@ -87,14 +89,35 @@ class RLen3(gym.Env):
     def _get_action_detail(self, action):
         if action not in [0, 1]:
             return None  # Trả về None nếu hành động không hợp lệ
+        # print("current: ", self.sfc_order_current)
         for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
             s = self.sfcs_list[s_index]
             if action < len(s):
                 return (s_index, action, s[action])
+    
+    def _get_action_detail2(self, action):
+        if action not in [0, 1]:
+            return None
+        if action == 1:
+            action -= 1
+        elif action == 0:
+            action += 1
+        for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
+            s = self.sfcs_list[s_index]
+            if action < len(s):
+                return (s_index, action, s[action])
+            
+    def _get_action_detail3(self, action):
+        if action == -1:
+            
+            for s_index in range(self.sfc_order_current, len(self.sfcs_list)):
+                s = self.sfcs_list[s_index]
+                return (s_index, action, s[0], s[1])
+               
         
         return None
     def _all_mapped(self):
-        if self.sfc_order_current == len(self.sfcs_list):
+        if self.sfc_order_current == len(self.sfcs_list)  :
             return True
         return False
     
@@ -112,6 +135,13 @@ class RLen3(gym.Env):
 
     def __is_reached_termination(self):
         if (self.sfc_order_current >= len(self.sfcs_list)):
+            return True
+        return False
+
+    def __is_last_of_sfc(self):
+        if (self.__is_reached_termination()):
+            return True
+        if ((self.sfc_order_current + 1) >= len(self.sfcs_list)):
             return True
         return False
 
@@ -148,79 +178,96 @@ class RLen3(gym.Env):
     
     def step(self, action):
         action = action -1
-        # print("alo: ", self.action_space)
-        # print("curent in step: ",self.sfc_order_current)
-        if (self.__is_reached_termination()):
+        new_solution = dict()
+        info = {}
+        is_last = self.__is_last_of_sfc()
+        # print("is last?: ", is_last)
+            
+        if (self.__is_reached_termination() or self.__is_truncated):
             reward = 0
             info = {
                 "message": "the env is terminated"
             }
-            
-            return (self.sfc_order_current, reward, self.__is_reached_termination(), info)
+            self.__is_truncated = True
+            return (self.sfc_order_current, reward, self.__is_reached_termination(), self.__is_truncated, info)
 
         if (action == -1):
-            self.__skip_sfc()
-            reward = -0.3
-            is_done = self._all_mapped()
-            if is_done:
+            reward = 0
+            if is_last:
                 info = {
                     "message": f"skip the config - ALL MAPPED"
                 }
-                done = True
-                return self.sfc_order_current, reward, self.__is_reached_termination(), info
+                self.__is_truncated = True
+                return self.sfc_order_current, reward, self.__is_reached_termination(), self.__is_truncated, info
             else:
-                done = False
-                
-                info = {
-                    "message": "skip the sfc"
-                }
-                return self.sfc_order_current, reward, False, info          
+                self.__skip_sfc()
+                is_done = self._all_mapped()
+                if is_done:
+                    info = {
+                        "message": f"skip the config - ALL MAPPED"
+                    }
+                    self.__is_truncated = True
+                    return self.sfc_order_current, reward, self.__is_reached_termination(), self.__is_truncated, info
+                else:
+                    self.__is_truncated = False
+                    info = {
+                        "message": "skip the sfc"
+                    }
+                    return self.sfc_order_current, reward, self.__is_reached_termination(), self.__is_truncated, info        
         
-        sfc_index, config_index, sfc = self._get_action_detail(action)
-        if (sfc_index, config_index) in self.mapped_configs:
-            reward = -10
-            info = {
-                {"message": f"config {config_index} of SFC {sfc_index} already mapped"}
-            }
-            return self.sfc_order_current, reward, self.__is_reached_termination(), info
+        sfc_index, config_index, sfc1 = self._get_action_detail(action)
+        
+        if not is_last:
+            if (sfc_index, config_index) in self.mapped_configs:
+                info = {"map trung roiiiii"}
+                reward = 0
+                return self.sfc_order_current, reward, self.__is_reached_termination(), self.__is_truncated, info  
 
         K = []
-        K.append([sfc])
-        
+        K.append([sfc1])
+            
+        # bat dau map bang ILP
         problem, xEdge, phi, pi, z= ConvertToILP(self.physical_graph_current, K)
         solver = COIN_CMD(msg=0)  # Tạo đối tượng solver với thông số msg=0 để tắt log
-        problem.solve(solver)
-        new_solution = dict()
-        for v in problem.variables():
-            if v.varValue == 1.0:
-                self.sol[v.name] = v.varValue
-        
+        problem.solve(solver)   
+        for v in problem.variables(): 
+            if v.varValue == 1:          
+                self.sol[v.name] = v.varValue       
         for key, value in self.sol.items():
-            if value == 1.0:
+            if value == 1:
                 new_key = self.__update_key(key, sfc_index, config_index)
-                new_solution[new_key] = value
+                new_solution[new_key] = value    
         self.sol.update(new_solution)
         reward, mapping_result = extract_mapping_result(problem, K, self.physical_graph, xEdge)
         reward = -reward
-        info = {}
         self.update_physical_network(mapping_result, K)
-        self._confirm_mapping()
+        
+        
+        is_done = self._all_mapped()
+        # neu khong phai cuoi thi confirm mapping
+        if not is_last:
+            self._confirm_mapping()
+        else:
+            is_done = True
+
         self.mapped_configs.add((sfc_index, config_index))
         info = {
             "mesage": f"config {config_index} of SFC {sfc_index} mapped successful into PHY "
         }
-        done = False
-        is_done = self._all_mapped()
+        self.__is_truncated = False
+        
+        
+        # print("is done: ", is_done)
         if is_done:
             info = {
-                "message": "All SFCs mapped"
+                "message": f"config {config_index} of SFC {sfc_index} mapped successful into PHY - ALL MAPPED"
             }
-            done = True
-            return self.sfc_order_current, reward, self.__is_reached_termination(), info
+            self.__is_truncated = True
+            return self.sfc_order_current, reward, self.__is_reached_termination(), self.__is_truncated, info 
         else:
-            done = False
+            self.__is_truncated = False
         
-        return self.sfc_order_current, reward, self.__is_reached_termination(), info
+        return self.sfc_order_current, reward, self.__is_reached_termination(), self.__is_truncated, info 
     
     def render(self)->dict:
         return self.sol
